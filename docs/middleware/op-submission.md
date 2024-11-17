@@ -140,12 +140,43 @@ Since `'submitRequestEnd'` is an event -- not a middleware hook -- it provides n
 
 ## Mutating ops
 
+Ops may be amended in the `apply` middleware using the special `request.$fixup()` method:
+
+```js
+backend.use('apply', (request, next) => {
+  let error;
+  try {
+    request.$fixup([{p: ['meta'], oi: {timestamp: Date.now()}}]);
+  } catch (e) {
+    error = e;
+  }
+
+  next(error);
+});
+```
+
 {: .warn :}
-Mutating ops in middleware is generally a **bad idea**, and should be avoided.
+The `request.$fixup()` method may throw an error, which should be handled appropriately, usually by passing directly to the `next()` callback.
 
-The main reason for avoiding op mutation is that the client who submitted the op will not be informed of the mutation, so the client's doc will never receive the mutation.
+## Comparing old snapshot version with new version
 
-The general workaround is to trigger a second op submission, rather than mutate the provided op. This obviously has the downside of op submissions being unatomic, but is the safest way to get the original client to receive the update.
+Frequently, it becomes necessary to verify the changes made. This can be accomplished by leveraging two hooks, `apply` and `commit`, and creating a snapshot clone within the `apply` hook.
 
-{: .warn :}
-When submitting ops from the middleware, set careful conditions under which you submit ops in order to avoid infinite op submission loops, where submitting an op recursively triggers infinite op submissions.
+```js
+// Alternatively use your favourite deep-clone library
+function deepClone(obj) {
+  return JSON.parse(JSON.stringify(obj));
+}
+
+backend.use('apply', (request, next) => {
+  request.snapshotBeforeApply = deepClone(request.snapshot);
+  next(error);
+});
+
+backend.use('commit', (request, next) => {
+  // Snapshot without ops and $fixupOps applied is now available as request.snapshotBeforeApply
+  // Snapshot with ops and $fixupOps applied is still available as request.snapshot
+  console.log(request.snapshotBeforeApply)
+  next(error);
+});
+```
